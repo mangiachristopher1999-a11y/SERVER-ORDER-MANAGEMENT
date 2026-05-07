@@ -306,6 +306,7 @@ textarea { resize: none; height: 54px; }
   border: 1.5px solid var(--border);
   border-radius: 50%;
   background: var(--bg);
+  color: var(--fg);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
