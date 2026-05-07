@@ -282,8 +282,44 @@ function renderTurno() {
 
   const pastOrders = state.orders.filter(o => !shift || o.shiftId !== shift.id);
   if (pastOrders.length > 0) {
+    html += `<div class="divider">Storico Turni</div>`;
+    
+    // Raggruppa le comande passate per ID del turno
+    const storici = {};
+    pastOrders.forEach(o => {
+      const sid = o.shiftId || 'no-shift';
+      if (!storici[sid]) storici[sid] = [];
+      storici[sid].push(o);
+    });
+
+    // Ordina i turni dal più recente al più vecchio
+    const sortedSids = Object.keys(storici).sort((a, b) => {
+      const tA = new Date(storici[a][storici[a].length - 1].time);
+      const tB = new Date(storici[b][storici[b].length - 1].time);
+      return tB - tA;
+    });
+
+    // Genera l'interfaccia per ogni turno passato
+    sortedSids.forEach(sid => {
+      const sOrders = storici[sid];
+      const rev = sOrders.reduce((s, o) => s + (o.total || 0), 0);
+      const cop = sOrders.reduce((s, o) => s + (parseInt(o.covers) || 0), 0);
+      const lastTime = sOrders[sOrders.length - 1].time;
+      
+      html += `
+        <div class="shift-block" style="margin-bottom:12px; background:var(--subtle);">
+          <div class="shift-block-title">Turno · ${fmtDate(lastTime)}</div>
+          <div class="stats-grid">
+            <div class="stat-item"><div class="stat-val">${sOrders.length}</div><div class="stat-lbl">Comande</div></div>
+            <div class="stat-item"><div class="stat-val">€${rev.toFixed(0)}</div><div class="stat-lbl">Incasso</div></div>
+            <div class="stat-item"><div class="stat-val">${cop}</div><div class="stat-lbl">Coperti</div></div>
+          </div>
+          <button class="btn btn-outline btn-full btn-sm" onclick="exportShift('${sid}')">↓ Esporta turno</button>
+        </div>`;
+    });
+
     html += `<div class="divider">Gestione Dati</div>
-             <button class="btn btn-outline btn-full btn-sm" style="color:var(--danger); border-color:var(--danger)" onclick="clearPastOrders()">🗑 Elimina ${pastOrders.length} Comande Passate</button>`;
+             <button class="btn btn-outline btn-full btn-sm" style="color:var(--danger); border-color:var(--danger)" onclick="clearPastOrders()">🗑 Elimina Storico (${pastOrders.length} comande)</button>`;
   }
 
   document.getElementById('sec-turno').innerHTML = html;
@@ -301,14 +337,30 @@ async function endShift() {
 }
 function exportShift(shiftId) {
   const orders = state.orders.filter(o => o.shiftId === shiftId);
+  if (orders.length === 0) return;
+  
   const rev = orders.reduce((s, o) => s + (o.total || 0), 0);
   let txt = '='.repeat(36) + '\nRIEPILOGO TURNO\n';
-  const s = state.currentShift;
-  if (s) txt += `${fmtDate(s.start)}\n${fmtTime(s.start)} → ${s.end ? fmtTime(s.end) : 'in corso'}\n`;
+  
+  // Verifica se è il turno corrente/ultimo oppure uno storico
+  const s = (state.currentShift && state.currentShift.id === shiftId) ? state.currentShift : null;
+  
+  if (s) {
+    txt += `${fmtDate(s.start)}\n${fmtTime(s.start)} → ${s.end ? fmtTime(s.end) : 'in corso'}\n`;
+  } else {
+    // Se è un turno storico, estrapola gli orari dalle comande stesse
+    const firstO = orders[0];
+    const lastO = orders[orders.length - 1];
+    txt += `${fmtDate(lastO.time)}\n${fmtTime(firstO.time)} → ${fmtTime(lastO.time)}\n`;
+  }
+  
   txt += '='.repeat(36) + '\n\n';
   orders.forEach(o => { txt += orderToText(o) + '\n' + '-'.repeat(36) + '\n\n'; });
-  txt += `TOTALE TURNO:  €${rev.toFixed(2)}\nCOMANDE:       ${orders.length}\nCOPERTI:       ${orders.reduce((s,o)=>s+(parseInt(o.covers)||0),0)}\n`;
-  const fname = 'turno_' + (s ? fmtDate(s.start).replace(/\//g,'-') : 'export') + '.txt';
+  txt += `TOTALE TURNO:  €${rev.toFixed(2)}\nCOMANDE:       ${orders.length}\nCOPERTI:       ${orders.reduce((acc,o)=>acc+(parseInt(o.covers)||0),0)}\n`;
+  
+  const fnameDate = s ? fmtDate(s.start) : fmtDate(orders[orders.length-1].time);
+  const fname = 'turno_' + fnameDate.replace(/\//g,'-') + '.txt';
+  
   robustShare(fname, txt);
 }
 async function clearPastOrders() {
