@@ -202,7 +202,6 @@ function openAddModal(cat) {
   document.getElementById('addModal').classList.add('open');
   history.pushState({ modal: 'add' }, '');
   setTimeout(() => document.getElementById('mi-name').focus(), 120);
-setTimeout(() => document.getElementById('mi-name').focus(), 120);
 }
 
 function editMenuItem(cat, idx) {
@@ -820,10 +819,16 @@ function appConfirm(message, isDanger = false) {
     btnOk.className = 'btn ' + (isDanger ? 'btn-danger' : 'btn-black');
     btnOk.style.flex = '1';
 
+
+    history.pushState({ modal: 'confirm' }, '');
+    // [FINE AGGIUNTA CHIRURGICA]
+
     const cleanup = (result) => {
       overlay.classList.remove('open');
       btnOk.onclick = null;
       btnCancel.onclick = null;
+      if (history.state && history.state.modal === 'confirm') history.back();
+      
       resolve(result);
     };
 

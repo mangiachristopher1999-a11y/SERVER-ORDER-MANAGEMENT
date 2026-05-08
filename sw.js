@@ -11,7 +11,7 @@ const ASSETS_TO_CACHE = [
   './icon-512.png'
 ];
 
-// 1. Fase di Installazione: il Service Worker si scarica i file
+// 1. Fase di Installazione: il Service Worker si scarica i file (INTATTA)
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -21,7 +21,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// 2. Fase di Attivazione: pulisce le cache vecchie se aggiorni CACHE_NAME (es. v2)
+// 2. Fase di Attivazione: pulisce le cache vecchie se aggiorni CACHE_NAME (INTATTA)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -37,19 +37,22 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 3. Fase di Fetch: Strategia "Cache First, fallback to Network"
+// 3. Fase di Fetch: Strategia "Stale-While-Revalidate" (NUOVA STRUTTURA CHIRURGICA)
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      // Se il file è nella cache, restituiscilo immediatamente
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      // Altrimenti fai la normale richiesta di rete
-      return fetch(event.request);
-    }).catch(() => {
-      // Opzionale: qui potresti restituire una pagina di "Sei completamente offline"
-      // Ma essendo una Single Page Application con la cache dei file base, non serve.
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.match(event.request).then((cachedResponse) => {
+        // Avvia la richiesta di rete in background per aggiornare la cache
+        const fetchPromise = fetch(event.request).then((networkResponse) => {
+          // Salva silenziosamente la versione più recente
+          cache.put(event.request, networkResponse.clone());
+          return networkResponse;
+        }).catch(() => {
+        });
+        
+        // Restituisce il file in cache (istantaneo) OPPURE aspetta la rete se è il primo download
+        return cachedResponse || fetchPromise;
+      });
     })
   );
 });
