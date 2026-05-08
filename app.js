@@ -80,9 +80,9 @@ function salvaMenu() {
   robustShare('menu_preset.txt', data);
   toast('Preset Menu in condivisione...');
 }
-function triggerCaricaMenu() { document.getElementById('Input').click(); }
+function triggerCaricaMenu() { document.getElementById('importMenuInput').click(); }
 
-function handle(e) {
+function handleImportMenu(e) {
   const file = e.target.files[0];
   if (!file) return;
   
