@@ -1,4 +1,4 @@
-cconst CACHE_NAME = 'cameriere-pro-v2';
+cconst CACHE_NAME = 'cameriere-pro-v3';
 
 // I file essenziali che vogliamo salvare per l'utilizzo offline
 const ASSETS_TO_CACHE = [
