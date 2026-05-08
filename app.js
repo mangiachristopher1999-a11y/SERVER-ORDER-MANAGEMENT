@@ -75,13 +75,14 @@ async function load() {
 // IMPORT / EXPORT MENU
 // ══════════════════════════════════════════════════════════════════════════════
 function salvaMenu() {
-  robustShare('menu_preset.json', JSON.stringify(state.menu, null, 2), 'application/json');
+  const data = JSON.stringify(state.menu, null, 2);
+  // Salviamo con estensione .txt per forzare Android ad aprire la tendina!
+  robustShare('menu_preset.txt', data);
   toast('Preset Menu in condivisione...');
 }
+function triggerCaricaMenu() { document.getElementById('Input').click(); }
 
-function triggerCaricaMenu() { document.getElementById('importMenuInput').click(); }
-
-function handleImportMenu(e) {
+function handle(e) {
   const file = e.target.files[0];
   if (!file) return;
   
@@ -256,6 +257,21 @@ function saveMenuItem() {
   }
   
   if (save()) { closeModal(); renderMenu(); }
+}
+
+async function deleteMenuItem(cat, idx) {
+  if (!(await appConfirm('Eliminare "' + state.menu[cat][idx].name + '"?', true))) return;
+  if (stampQty[cat]) {
+    const newCat = {};
+    for (const [k, v] of Object.entries(stampQty[cat])) {
+      const ki = parseInt(k);
+      if (ki < idx) newCat[ki] = v;
+      else if (ki > idx) newCat[ki - 1] = v;
+    }
+    stampQty[cat] = newCat;
+  }
+  state.menu[cat].splice(idx, 1);
+  save(); renderMenu(); toast('Voce eliminata');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -601,39 +617,39 @@ function saveStamp() {
 // ROBUST SHARE — 4 strategie per WebIntoApp / Android WebView
 // ══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Strategia 1 – navigator.share con File allegato (Android share sheet nativo)
- * Strategia 2 – navigator.share con testo puro (fallback se file non supportato)
- * Strategia 3 – Clipboard API (copia negli appunti)
- * Strategia 4 – Modal con textarea selezionabile + pulsante Copia
- *
- * IMPORTANTE: questa funzione NON è async e non usa await PRIMA di chiamare
- * navigator.share. Questo preserva il "user gesture context" necessario
- * alla WebView di Android per aprire il bottom sheet nativo.
- */
-function robustShare(filename, text) {
-  // ── Strategia 1: Share con file fisico ──────────────────────────────────
+
+
+function robustShare(filename, text, mimeType) {
+  // Se il mimeType non è passato, lo deduciamo dall'estensione
+  const type = mimeType || (filename.endsWith('.json') ? 'application/json' : 'text/plain');
+
   if (typeof navigator.share === 'function') {
     try {
-      const blob = new Blob([text], { type: 'text/plain' });
-      const file = new File([blob], filename, { type: 'text/plain', lastModified: Date.now() });
+      const blob = new Blob([text], { type: type });
+      const file = new File([blob], filename, { type: type, lastModified: Date.now() });
 
+      // Verifichiamo se il browser/Android accetta di condividere questo specifico file
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ title: filename, files: [file] })
-          .then(() => { /* share completato */ })
-          .catch(err => {
-            if (err.name !== 'AbortError') _shareAsText(filename, text);
-          });
+        navigator.share({ 
+          title: filename, 
+          files: [file] 
+        })
+        .then(() => { /* Successo */ })
+        .catch(err => {
+          // Se l'utente annulla (AbortError), non facciamo nulla. 
+          // Altrimenti tentiamo il fallback testuale.
+          if (err.name !== 'AbortError') _shareAsText(filename, text);
+        });
         return;
       }
-    } catch (e) { /* canShare non disponibile, passo alla strategia 2 */ }
+    } catch (e) { console.error("Share file error:", e); }
 
-    // ── Strategia 2: Share testo senza file ──────────────────────────────
+    // Strategia 2: Fallback testo puro
     _shareAsText(filename, text);
     return;
   }
 
-  // ── Strategia 3+4: nessun navigator.share (browser desktop o WebView vecchio)
+  // Strategia 3+4: Clipboard o Modal manuale
   _clipboardOrModal(filename, text);
 }
 
