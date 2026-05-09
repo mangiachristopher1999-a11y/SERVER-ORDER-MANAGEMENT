@@ -17,6 +17,7 @@ let state = {
 
 let stampQty    = {};
 let stampNotes  = {};
+let stampItemNotes = {};
 let isSavingOrder = false;
 
 let currentTab    = 'menu';
@@ -197,9 +198,11 @@ function openAddModal(cat) {
   document.getElementById('addModalTitle').textContent = 'Aggiungi — ' + CATS[cat];
   document.getElementById('mi-name').value = '';
   document.getElementById('mi-price').value = '';
-  document.getElementById('mi-portions').value = '';
-  document.querySelector('#addModal .btn-black').textContent = '+ Aggiungi'; // Testo bottone
-  
+ document.getElementById('mi-portions').value = '';
+  document.getElementById('mi-removals').value = '';
+  document.getElementById('mi-additions').value = '';
+  document.querySelector('#addModal .btn-black').textContent = '+ Aggiungi';
+
   document.getElementById('addModal').classList.add('open');
   history.pushState({ modal: 'add' }, '');
   setTimeout(() => document.getElementById('mi-name').focus(), 120);
@@ -208,19 +211,20 @@ function openAddModal(cat) {
 function editMenuItem(cat, idx) {
   vibra();
   addModalCat = cat;
-  editModalIdx = idx; // Salviamo l'indice che stiamo modificando
+  editModalIdx = idx;
   const item = state.menu[cat][idx];
   
   document.getElementById('addModalTitle').textContent = 'Modifica — ' + CATS[cat];
   document.getElementById('mi-name').value = item.name;
   document.getElementById('mi-price').value = item.price ? item.price : '';
-  document.getElementById('mi-portions').value = item.portions ? item.portions : '';
-  document.querySelector('#addModal .btn-black').textContent = '✓ Salva Modifiche'; // Testo bottone
-  
+  document.getElementById('mi-portions').value = item.portions ? item.portions : ''; // <- Qui mancava la "d"
+  document.getElementById('mi-removals').value = item.removals ? item.removals : '';
+  document.getElementById('mi-additions').value = item.additions ? item.additions : '';
+  document.querySelector('#addModal .btn-black').textContent = '✓ Salva Modifiche';
+
   document.getElementById('addModal').classList.add('open');
   history.pushState({ modal: 'add' }, '');
 }
-
 function closeModal() {
   document.getElementById('addModal').classList.remove('open');
   if (history.state && history.state.modal) history.back();
@@ -244,18 +248,18 @@ function saveMenuItem() {
   const price = parseFloat(priceStr) || 0;
   const portions = parseInt(document.getElementById('mi-portions').value) || null;
   
+  const removals = document.getElementById('mi-removals').value.trim();
+  const additions = document.getElementById('mi-additions').value.trim();
+
   if (!name) { toast('Inserisci un nome'); return; }
   if (!state.menu[addModalCat]) state.menu[addModalCat] = [];
-  
-  // LOGICA CHIRURGICA: Se stiamo modificando, sovrascrive. Altrimenti, aggiunge.
+
   if (editModalIdx !== null) {
-    state.menu[addModalCat][editModalIdx] = { name, price, portions };
-    toast('Voce modificata');
+    state.menu[addModalCat][editModalIdx] = { name, price, portions, removals, additions };
   } else {
-    state.menu[addModalCat].push({ name, price, portions });
-    toast('Voce aggiunta');
+    state.menu[addModalCat].push({ name, price, portions, removals, additions });
   }
-  
+
   if (save()) { closeModal(); renderMenu(); }
 }
 
@@ -446,7 +450,10 @@ function renderOrders() {
           const vis = (cat.items || []).filter(i => i.qty > 0);
           if (vis.length === 0 && !cat.notes) return;
           html += `<div class="oc-cat-lbl">${CATS[key]}</div>`;
-          vis.forEach(i => html += `<div class="oc-line"><span>${esc(i.name)}</span><span>${i.qty}× €${(i.price * i.qty).toFixed(2)}</span></div>`);
+          vis.forEach(i => {
+            html += `<div class="oc-line"><span>${esc(i.name)}</span><span>${i.qty}× €${(i.price * i.qty).toFixed(2)}</span></div>`;
+            if (i.note) html += `<div class="oc-note" style="margin-top:-4px; padding-bottom:4px; font-weight:500;">↳ ${esc(i.note)}</div>`;
+          });
           if (cat.notes) html += `<div class="oc-note">Nota: ${esc(cat.notes)}</div>`;
         });
         html += `<div class="oc-total"><span>Totale</span><span>€${total}</span></div>
@@ -489,6 +496,7 @@ function editOrder(id) {
   editingOrderId = id;
   stampQty = {};
   stampNotes = {};
+  stampItemNotes = {}; // Reset
   let missingItems = false;
 
   // Re-idratazione delle quantità basate sul menu attuale
@@ -500,7 +508,12 @@ function editOrder(id) {
         const idx = (state.menu[key] || []).findIndex(mi => mi.name === oItem.name);
         if (idx !== -1) {
           stampQty[key][idx] = oItem.qty;
-        } else {
+          if (oItem.note) {
+             if (!stampItemNotes[key]) stampItemNotes[key] = {};
+             stampItemNotes[key][idx] = oItem.note;
+          }
+        }
+        else {
           missingItems = true; // Il piatto non è più nel menu
         }
       });
@@ -526,6 +539,7 @@ function cancelEdit() {
   editingOrderId = null;
   stampQty = {}; 
   stampNotes = {};
+  stampItemNotes = {};
   renderStamp();
   toast('Modifica annullata');
 }
@@ -564,16 +578,43 @@ function renderStamp() {
       html += `<div class="stamp-cat-block"><div class="cat-label">${label}</div>`;
       items.forEach((item, idx) => {
         const qty = stampQty[key]?.[idx] || 0;
+        const itemNote = stampItemNotes[key]?.[idx] || '';
+        const remList = item.removals ? item.removals.split(',').map(v => v.trim()).filter(v => v) : [];
+        const addList = item.additions ? item.additions.split(',').map(v => v.trim()).filter(v => v) : [];
+        let varHtml = '';
+        
+        if (remList.length > 0 || addList.length > 0) {
+          varHtml += `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">`;
+          
+          // Generazione Bottoni Rossi (Ingredienti da togliere)
+          remList.forEach(v => {
+            varHtml += `<button class="btn btn-sm btn-outline" style="border-color:var(--danger); color:var(--danger); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},'Senza ${esc(v)}')">− ${esc(v)}</button>`;
+          });
+          
+          // Generazione Bottoni Verdi (Aggiunte extra)
+          addList.forEach(v => {
+            varHtml += `<button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},'+ ${esc(v)}')">+ ${esc(v)}</button>`;
+          });
+          
+          varHtml += `</div>`;
+        }
+
         html += `
-          <div class="stamp-item">
-            <div class="stamp-item-info">
-              <div class="stamp-item-name">${esc(item.name)}</div>
-              <div class="stamp-item-price">€${num(item.price)} ${item.portions ? '· '+item.portions+'pz' : ''}</div>
+          <div style="border-bottom: 1px solid var(--border);">
+            <div class="stamp-item" style="border-bottom: none;">
+              <div class="stamp-item-info">
+                <div class="stamp-item-name">${esc(item.name)}</div>
+                <div class="stamp-item-price">€${num(item.price)} ${item.portions ? '· '+item.portions+'pz' : ''}</div>
+              </div>
+              <div class="qty-row">
+                <button id="qb-m-${key}-${idx}" class="qb ${qty>0?'has':''}" onclick="changeQty('${key}',${idx},-1)">−</button>
+                <span id="qv-${key}-${idx}" class="qv">${qty>0?qty:''}</span>
+                <button id="qb-p-${key}-${idx}" class="qb ${qty>0?'has':''}" onclick="changeQty('${key}',${idx}, 1)">+</button>
+              </div>
             </div>
-            <div class="qty-row">
-              <button id="qb-m-${key}-${idx}" class="qb ${qty>0?'has':''}" onclick="changeQty('${key}',${idx},-1)">−</button>
-              <span id="qv-${key}-${idx}" class="qv">${qty>0?qty:''}</span>
-              <button id="qb-p-${key}-${idx}" class="qb ${qty>0?'has':''}" onclick="changeQty('${key}',${idx}, 1)">+</button>
+            <div id="var-block-${key}-${idx}" style="display:${qty>0?'block':'none'}; padding:0 0 10px 0;">
+              ${varHtml}
+              <input type="text" id="inote-${key}-${idx}" placeholder="Note per ${esc(item.name)}..." value="${esc(itemNote)}" oninput="setItemNote('${key}',${idx},this.value)" style="font-size:11px; padding:6px 8px;">
             </div>
           </div>`;
       });
@@ -613,8 +654,24 @@ function changeQty(cat, idx, delta) {
   if (bmEl) next > 0 ? bmEl.classList.add('has') : bmEl.classList.remove('has');
   if (bpEl) next > 0 ? bpEl.classList.add('has') : bpEl.classList.remove('has');
 
+  const varBlock = document.getElementById(`var-block-${cat}-${idx}`);
+  if (varBlock) varBlock.style.display = next > 0 ? 'block' : 'none';
   const totalEl = document.getElementById('stamp-total-val');
   if (totalEl) totalEl.textContent = '€' + calcTotal().toFixed(2);
+}
+
+function setItemNote(cat, idx, val) {
+  if (!stampItemNotes[cat]) stampItemNotes[cat] = {};
+  stampItemNotes[cat][idx] = val;
+}
+function addVarToItem(cat, idx, varText) {
+  vibra();
+  if (!stampItemNotes[cat]) stampItemNotes[cat] = {};
+  let current = stampItemNotes[cat][idx] || '';
+  if (current && !current.endsWith(' ')) current += ', ';
+  current += varText;
+  stampItemNotes[cat][idx] = current;
+  document.getElementById(`inote-${cat}-${idx}`).value = current;
 }
 
 function calcTotal() {
@@ -646,8 +703,7 @@ function saveStamp() {
     const items = [];
     for (const [idx, qty] of Object.entries(stampQty[key] || {})) {
       const item = state.menu[key]?.[parseInt(idx)];
-      if (item && qty > 0) items.push({ name: item.name, qty, price: item.price || 0 });
-    }
+if (item && qty > 0) items.push({ name: item.name, qty, price: item.price || 0, note: stampItemNotes[key]?.[idx] || '' });    }
     categories[key] = { items, notes: stampNotes[key] || '' };
   }
 
