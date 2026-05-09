@@ -23,6 +23,7 @@ let currentTab    = 'menu';
 let openOrderId   = null;
 let addModalCat   = null;
 let editModalIdx  = null;
+let editingOrderId = null;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PERSISTENCE — IndexedDB
@@ -450,7 +451,8 @@ function renderOrders() {
         });
         html += `<div class="oc-total"><span>Totale</span><span>€${total}</span></div>
           <div class="oc-actions">
-            <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();exportOrder('${o.id}')">↑ Condividi / Esporta</button>
+            <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();editOrder('${o.id}')">✎ Modifica</button>
+            <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();exportOrder('${o.id}')">↑ Condividi</button>
             <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteOrder('${o.id}')">Elimina</button>
           </div></div>`;
       }
@@ -478,6 +480,56 @@ async function deleteOrder(id) {
   if (openOrderId === id) openOrderId = null;
   save(); renderOrders(); toast('Eliminata');
 }
+
+function editOrder(id) {
+  vibra();
+  const o = state.orders.find(x => x.id === id);
+  if (!o) return;
+  
+  editingOrderId = id;
+  stampQty = {};
+  stampNotes = {};
+  let missingItems = false;
+
+  // Re-idratazione delle quantità basate sul menu attuale
+  CAT_KEYS.forEach(key => {
+    if (o.categories && o.categories[key]) {
+      stampNotes[key] = o.categories[key].notes || '';
+      stampQty[key] = {};
+      (o.categories[key].items || []).forEach(oItem => {
+        const idx = (state.menu[key] || []).findIndex(mi => mi.name === oItem.name);
+        if (idx !== -1) {
+          stampQty[key][idx] = oItem.qty;
+        } else {
+          missingItems = true; // Il piatto non è più nel menu
+        }
+      });
+    }
+  });
+
+  goTo('stamp');
+  
+  // Popoliamo gli input sincronicamente dopo il render
+  document.getElementById('s-table').value = o.table || '';
+  document.getElementById('s-covers').value = o.covers || '';
+  document.getElementById('s-name').value = o.customerName || '';
+  
+  const totalEl = document.getElementById('stamp-total-val');
+  if (totalEl) totalEl.textContent = '€' + calcTotal().toFixed(2);
+
+  if (missingItems) toast('⚠ Alcuni vecchi piatti rimossi dal menu sono stati ignorati.');
+  else toast('✎ Modalità modifica attivata');
+}
+
+function cancelEdit() {
+  vibra();
+  editingOrderId = null;
+  stampQty = {}; 
+  stampNotes = {};
+  renderStamp();
+  toast('Modifica annullata');
+}
+
 function exportAll() {
   if (state.orders.length === 0) return;
   robustShare('tutte_le_comande.txt', state.orders.map(o => orderToMarkdown(o)).join('\n' + '═'.repeat(36) + '\n\n'));
@@ -530,12 +582,17 @@ function renderStamp() {
     }
   }
 
+  const saveBtnText = editingOrderId ? '✓ Aggiorna' : '✓ Salva';
+  let footerBtns = `<button id="btn-save-stamp" class="btn ${hasShift ? 'btn-black' : 'btn-muted'}" onclick="${hasShift ? 'saveStamp()' : 'goTo(\'turno\')'}" style="min-width:130px;">${hasShift ? saveBtnText : '→ Avvia Turno'}</button>`;
+  
+  if (editingOrderId) {
+    footerBtns = `<button class="btn btn-outline" onclick="cancelEdit()" style="margin-right:8px;">✕ Annulla</button>` + footerBtns;
+  }
+
   html += `
     <div class="stamp-footer">
       <div><div class="stamp-total-lbl">Totale</div><div class="stamp-total-val" id="stamp-total-val">€${calcTotal().toFixed(2)}</div></div>
-      <button id="btn-save-stamp" class="btn ${hasShift ? 'btn-black' : 'btn-muted'}" onclick="${hasShift ? 'saveStamp()' : 'goTo(\'turno\')'}" style="min-width:130px;">
-        ${hasShift ? '✓ Salva' : '→ Avvia Turno'}
-      </button>
+      <div style="display:flex;">${footerBtns}</div>
     </div>`;
 
   document.getElementById('sec-stamp').innerHTML = html;
@@ -599,12 +656,22 @@ function saveStamp() {
   isSavingOrder = true;
   document.getElementById('btn-save-stamp').disabled = true;
 
-  const order = { id: uid(), shiftId: shift.id, table, covers, customerName, time: new Date().toISOString(), categories, total: calcTotal() };
-  state.orders.push(order);
+  if (editingOrderId) {
+    const index = state.orders.findIndex(o => o.id === editingOrderId);
+    if (index !== -1) {
+      // Aggiorniamo mantenendo l'ID e l'ora originali
+      state.orders[index] = { ...state.orders[index], table, covers, customerName, categories, total: calcTotal() };
+    }
+  } else {
+    const order = { id: uid(), shiftId: shift.id, table, covers, customerName, time: new Date().toISOString(), categories, total: calcTotal() };
+    state.orders.push(order);
+  }
 
   if (save()) {
     stampQty = {}; stampNotes = {};
-    toast('Comanda salvata!');
+    const wasEditing = editingOrderId;
+    editingOrderId = null; // Reset cruciale
+    toast(wasEditing ? 'Comanda aggiornata!' : 'Comanda salvata!');
     goTo('orders');
   }
 
