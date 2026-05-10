@@ -533,10 +533,15 @@ function editOrder(id) {
       (o.categories[key].items || []).forEach(oItem => {
         const idx = (state.menu[key] || []).findIndex(mi => mi.name === oItem.name);
         if (idx !== -1) {
-          stampQty[key][idx] = oItem.qty;
-          if (oItem.note) {
-             if (!stampItemNotes[key]) stampItemNotes[key] = {};
-             stampItemNotes[key][idx] = oItem.note;
+          const startIdx = stampQty[key][idx] || 0;
+          stampQty[key][idx] = startIdx + oItem.qty; // Accumula le quantità se il piatto era diviso
+          
+          if (!stampItemNotes[key]) stampItemNotes[key] = {};
+          if (!stampItemNotes[key][idx]) stampItemNotes[key][idx] = {};
+          
+          // Re-inietta le note separandole sulle corrette istanze
+          for(let i=0; i<oItem.qty; i++) {
+             stampItemNotes[key][idx][startIdx + i] = oItem.note || '';
           }
         }
         else {
@@ -604,27 +609,7 @@ function renderStamp() {
       html += `<div class="stamp-cat-block"><div class="cat-label">${label}</div>`;
       items.forEach((item, idx) => {
         const qty = stampQty[key]?.[idx] || 0;
-        const itemNote = stampItemNotes[key]?.[idx] || '';
-        const remList = item.removals ? item.removals.split(',').map(v => v.trim()).filter(v => v) : [];
-        const addList = item.additions ? item.additions.split(',').map(v => v.trim()).filter(v => v) : [];
-        let varHtml = '';
         
-        if (remList.length > 0 || addList.length > 0) {
-          varHtml += `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">`;
-          
-          // Generazione Bottoni Rossi (Ingredienti da togliere)
-          remList.forEach(v => {
-            varHtml += `<button class="btn btn-sm btn-outline" style="border-color:var(--danger); color:var(--danger); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},'Senza ${esc(v)}')">− ${esc(v)}</button>`;
-          });
-          
-          // Generazione Bottoni Verdi (Aggiunte extra)
-          addList.forEach(v => {
-            varHtml += `<button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},'+ ${esc(v)}')">+ ${esc(v)}</button>`;
-          });
-          
-          varHtml += `</div>`;
-        }
-
         html += `
           <div style="border-bottom: 1px solid var(--border);">
             <div class="stamp-item" style="border-bottom: none;">
@@ -639,8 +624,7 @@ function renderStamp() {
               </div>
             </div>
             <div id="var-block-${key}-${idx}" style="display:${qty>0?'block':'none'}; padding:0 0 10px 0;">
-              ${varHtml}
-              <input type="text" id="inote-${key}-${idx}" placeholder="Note per ${esc(item.name)}..." value="${esc(itemNote)}" oninput="setItemNote('${key}',${idx},this.value)" style="font-size:11px; padding:6px 8px;">
+              ${qty > 0 ? buildVarHtml(key, idx, qty) : ''}
             </div>
           </div>`;
       });
@@ -665,6 +649,41 @@ function renderStamp() {
   document.getElementById('sec-stamp').innerHTML = html;
 }
 
+function buildVarHtml(key, idx, qty) {
+  const item = state.menu[key]?.[idx];
+  if (!item) return '';
+  const remList = item.removals ? item.removals.split(',').map(v => v.trim()).filter(v => v) : [];
+  const addList = item.additions ? item.additions.split(',').map(v => v.trim()).filter(v => v) : [];
+  
+  let html = '';
+  for (let i = 0; i < qty; i++) {
+    let itemNote = (stampItemNotes[key] && stampItemNotes[key][idx]) ? (stampItemNotes[key][idx][i] || '') : '';
+    let varBtns = '';
+    
+    if (remList.length > 0 || addList.length > 0) {
+      varBtns += `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">`;
+      remList.forEach(v => {
+        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--danger); color:var(--danger); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},${i},'Senza ${esc(v)}')">− ${esc(v)}</button>`;
+      });
+      addList.forEach(v => {
+        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},${i},'+ ${esc(v)}')">+ ${esc(v)}</button>`;
+      });
+      varBtns += `</div>`;
+    }
+    
+    const label = qty > 1 ? `<div style="font-size:11px; font-weight:600; color:var(--accent); margin-bottom:6px;">Piatto ${i+1}</div>` : '';
+    const style = qty > 1 ? 'border-left:2px solid var(--accent); padding-left:10px; margin-top:10px;' : 'margin-top:6px;';
+    
+    html += `
+      <div class="var-instance" style="${style}">
+        ${label}
+        ${varBtns}
+        <input type="text" id="inote-${key}-${idx}-${i}" placeholder="${qty>1 ? 'Note piatto '+(i+1)+'...' : 'Note per '+esc(item.name)+'...'}" value="${esc(itemNote)}" oninput="setItemNote('${key}',${idx},${i},this.value)" style="font-size:11px; padding:6px 8px;">
+      </div>`;
+  }
+  return html;
+}
+
 function changeQty(cat, idx, delta) {
   vibra();
   if (!stampQty[cat]) stampQty[cat] = {};
@@ -681,23 +700,32 @@ function changeQty(cat, idx, delta) {
   if (bpEl) next > 0 ? bpEl.classList.add('has') : bpEl.classList.remove('has');
 
   const varBlock = document.getElementById(`var-block-${cat}-${idx}`);
-  if (varBlock) varBlock.style.display = next > 0 ? 'block' : 'none';
-  const totalEl = document.getElementById('stamp-total-val');
-  if (totalEl) totalEl.textContent = '€' + calcTotal().toFixed(2);
+  if (varBlock) {
+    if (next > 0) {
+      varBlock.style.display = 'block';
+      varBlock.innerHTML = buildVarHtml(cat, idx, next);
+    } else {
+      varBlock.style.display = 'none';
+      varBlock.innerHTML = '';
+    }
+  }
+  updateStampTotal();
 }
 
-function setItemNote(cat, idx, val) {
+function setItemNote(cat, idx, inst, val) {
   if (!stampItemNotes[cat]) stampItemNotes[cat] = {};
-  stampItemNotes[cat][idx] = val;
+  if (!stampItemNotes[cat][idx]) stampItemNotes[cat][idx] = {};
+  stampItemNotes[cat][idx][inst] = val;
 }
-function addVarToItem(cat, idx, varText) {
+function addVarToItem(cat, idx, inst, varText) {
   vibra();
   if (!stampItemNotes[cat]) stampItemNotes[cat] = {};
-  let current = stampItemNotes[cat][idx] || '';
+  if (!stampItemNotes[cat][idx]) stampItemNotes[cat][idx] = {};
+  let current = stampItemNotes[cat][idx][inst] || '';
   if (current && !current.endsWith(' ')) current += ', ';
   current += varText;
-  stampItemNotes[cat][idx] = current;
-  document.getElementById(`inote-${cat}-${idx}`).value = current;
+  stampItemNotes[cat][idx][inst] = current;
+  document.getElementById(`inote-${cat}-${idx}-${inst}`).value = current;
 }
 
 function updateStampTotal() {
@@ -740,10 +768,20 @@ function saveStamp() {
     const items = [];
     for (const [idx, qty] of Object.entries(stampQty[key] || {})) {
       const item = state.menu[key]?.[parseInt(idx)];
-if (item && qty > 0) items.push({ name: item.name, qty, price: item.price || 0, note: stampItemNotes[key]?.[idx] || '' });    }
+      if (item && qty > 0) {
+        const notesCount = {};
+        // Raggruppiamo i piatti che hanno le stesse identiche note
+        for(let i=0; i<qty; i++) {
+           const n = (stampItemNotes[key]?.[idx]?.[i] || '').trim();
+           notesCount[n] = (notesCount[n] || 0) + 1;
+        }
+        for (const [n, count] of Object.entries(notesCount)) {
+           items.push({ name: item.name, qty: count, price: item.price || 0, note: n });
+        }
+      }
+    }
     categories[key] = { items, notes: stampNotes[key] || '' };
   }
-
   if (!CAT_KEYS.some(k => (categories[k]?.items || []).length > 0)) { toast('Aggiungi almeno un piatto'); return; }
 
   isSavingOrder = true;
