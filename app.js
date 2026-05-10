@@ -663,10 +663,10 @@ function buildVarHtml(key, idx, qty) {
     if (remList.length > 0 || addList.length > 0) {
       varBtns += `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">`;
       remList.forEach(v => {
-        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--danger); color:var(--danger); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},${i},'Senza ${esc(v)}')">− ${esc(v)}</button>`;
+        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--danger); color:var(--danger); padding:4px 8px; font-size:10px;" onpointerdown="event.preventDefault()" onclick="addVarToItem('${key}',${idx},${i},'Senza ${esc(v)}')">− ${esc(v)}</button>`;
       });
       addList.forEach(v => {
-        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); padding:4px 8px; font-size:10px;" onclick="addVarToItem('${key}',${idx},${i},'+ ${esc(v)}')">+ ${esc(v)}</button>`;
+        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); padding:4px 8px; font-size:10px;" onpointerdown="event.preventDefault()" onclick="addVarToItem('${key}',${idx},${i},'+ ${esc(v)}')">+ ${esc(v)}</button>`;
       });
       varBtns += `</div>`;
     }
@@ -725,7 +725,12 @@ function addVarToItem(cat, idx, inst, varText) {
   if (current && !current.endsWith(' ')) current += ', ';
   current += varText;
   stampItemNotes[cat][idx][inst] = current;
-  document.getElementById(`inote-${cat}-${idx}-${inst}`).value = current;
+  
+  const inputEl = document.getElementById(`inote-${cat}-${idx}-${inst}`);
+  if (inputEl) {
+    inputEl.value = current;
+    inputEl.focus(); // Forza il mantenimento del focus sulla tastiera
+  }
 }
 
 function updateStampTotal() {
