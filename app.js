@@ -11,6 +11,7 @@ const CAT_KEYS = Object.keys(CATS);
 
 let state = {
   menu: { antipasti: [], primi: [], secondi: [], dolci: [], bevande: [] },
+  copertoPrice: 0,
   currentShift: null,
   orders: []
 };
@@ -65,6 +66,7 @@ async function load() {
           if (parsed.menu)         state.menu = { ...state.menu, ...parsed.menu };
           if (parsed.currentShift) state.currentShift = parsed.currentShift;
           if (parsed.orders)       state.orders = parsed.orders;
+          if (parsed.copertoPrice !== undefined) state.copertoPrice = parsed.copertoPrice;
         }
         resolve();
       };
@@ -159,6 +161,12 @@ function renderPill() {
 // ══════════════════════════════════════════════════════════════════════════════
 // MENU LOGIC
 // ══════════════════════════════════════════════════════════════════════════════
+function updateCoperto(val) {
+  state.copertoPrice = parseFloat(val) || 0;
+  save();
+  toast('Prezzo coperto aggiornato');
+}
+
 function renderMenu() {
   let html = `
     <div class="shift-block" style="background: var(--subtle)">
@@ -167,25 +175,39 @@ function renderMenu() {
         <button class="btn btn-black btn-sm btn-full" onclick="salvaMenu()">↓ Salva</button>
         <button class="btn btn-outline btn-sm btn-full" onclick="triggerCaricaMenu()">↑ Carica</button>
       </div>
-    </div><div class="g16"></div>`;
+    </div><div class="g16"></div>
+    
+    <div class="cat-label">Impostazioni Generali</div>
+    <div class="field" style="margin-bottom: 20px;">
+      <label>Prezzo Coperto (€)</label>
+      <input type="number" inputmode="decimal" step="0.5" min="0" value="${state.copertoPrice || 0}" onchange="updateCoperto(this.value)" placeholder="Es. 2.00">
+    </div>
+    <div class="g16"></div>`;
 
   for (const [key, label] of Object.entries(CATS)) {
     const items = state.menu[key] || [];
-    html += `<div class="cat-label">${label}<button class="btn btn-sm btn-outline" onclick="openAddModal('${key}')">+ Aggiungi</button></div>`;
-    if (items.length === 0) { html += `<div class="mi-none">Nessuna voce</div>`; }
-    else {
+    html += `
+      <div class="menu-cat-block">
+        <div class="cat-label" style="font-size: 16px; font-weight: 800; border-bottom: 2px solid var(--border);">
+          ${label}
+          <button class="btn btn-sm btn-outline" onclick="openAddModal('${key}')">+ Aggiungi</button>
+        </div>`;
+    
+    if (items.length === 0) { 
+      html += `<div class="mi-none">Nessuna voce</div>`; 
+    } else {
       items.forEach((item, idx) => {
         html += `
           <div class="mi">
             <div style="flex:1; display:flex; align-items:center; gap:8px; cursor:pointer;" onclick="editMenuItem('${key}', ${idx})">
-              <div class="mi-name">${esc(item.name)}</div>
+              <div class="mi-name" style="font-weight: 500;">${esc(item.name)}</div>
               <div class="mi-meta">€${num(item.price)} ${item.portions ? ' · '+item.portions+'pz' : ''}</div>
             </div>
             <button class="mi-del" onclick="deleteMenuItem('${key}',${idx})">×</button>
           </div>`;
       });
     }
-    html += `<div class="g16"></div>`;
+    html += `</div>`; // Chiude menu-cat-block
   }
   document.getElementById('sec-menu').innerHTML = html;
 }
@@ -456,6 +478,10 @@ function renderOrders() {
           });
           if (cat.notes) html += `<div class="oc-note">Nota: ${esc(cat.notes)}</div>`;
         });
+        const copertoTotal = covers * (o.copertoPrice || 0);
+        if (copertoTotal > 0) {
+           html += `<div class="oc-line" style="color:var(--muted); font-size:12px;"><span>Coperto (${covers}× €${o.copertoPrice.toFixed(2)})</span><span>€${copertoTotal.toFixed(2)}</span></div>`;
+        }
         html += `<div class="oc-total"><span>Totale</span><span>€${total}</span></div>
           <div class="oc-actions">
             <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();editOrder('${o.id}')">✎ Modifica</button>
@@ -562,7 +588,7 @@ function renderStamp() {
   html += `
     <div class="stamp-toprow">
       <div class="field"><label>N° Tavolo</label><input type="number" inputmode="numeric" pattern="[0-9]*" min="1" id="s-table" placeholder="1" style="font-size:20px;font-weight:600;"></div>
-      <div class="field"><label>Coperti</label><input type="number" inputmode="numeric" pattern="[0-9]*" min="0" id="s-covers" placeholder="2" style="font-size:20px;font-weight:600;"></div>
+      <div class="field"><label>Coperti</label><input type="number" inputmode="numeric" pattern="[0-9]*" min="0" id="s-covers" placeholder="2" style="font-size:20px;font-weight:600;" oninput="updateStampTotal()"></div>
     </div>
     <div class="field" style="margin-bottom: 20px;">
       <label>Nome (Opzionale)</label>
@@ -674,8 +700,19 @@ function addVarToItem(cat, idx, varText) {
   document.getElementById(`inote-${cat}-${idx}`).value = current;
 }
 
+function updateStampTotal() {
+  const totalEl = document.getElementById('stamp-total-val');
+  if (totalEl) totalEl.textContent = '€' + calcTotal().toFixed(2);
+}
+
 function calcTotal() {
   let t = 0;
+  
+  // Calcolo del coperto
+  const coversInput = document.getElementById('s-covers');
+  const covers = coversInput ? (parseInt(coversInput.value) || 0) : 0;
+  t += covers * (state.copertoPrice || 0);
+
   for (const key of CAT_KEYS) {
     if (!stampQty[key]) continue;
     for (const [idx, qty] of Object.entries(stampQty[key])) {
@@ -716,10 +753,10 @@ if (item && qty > 0) items.push({ name: item.name, qty, price: item.price || 0, 
     const index = state.orders.findIndex(o => o.id === editingOrderId);
     if (index !== -1) {
       // Aggiorniamo mantenendo l'ID e l'ora originali
-      state.orders[index] = { ...state.orders[index], table, covers, customerName, categories, total: calcTotal() };
+      state.orders[index] = { ...state.orders[index], table, covers, customerName, categories, copertoPrice: state.copertoPrice || 0, total: calcTotal() };
     }
   } else {
-    const order = { id: uid(), shiftId: shift.id, table, covers, customerName, time: new Date().toISOString(), categories, total: calcTotal() };
+    const order = { id: uid(), shiftId: shift.id, table, covers, customerName, time: new Date().toISOString(), categories, copertoPrice: state.copertoPrice || 0, total: calcTotal() };
     state.orders.push(order);
   }
 
@@ -897,6 +934,9 @@ function orderToMarkdown(o) {
 
   // Totale
   t += SEP + '\n';
+  if (o.covers > 0 && o.copertoPrice > 0) {
+    t += ` Coperto (${o.covers}x):`.padEnd(24) + `€${(o.covers * o.copertoPrice).toFixed(2)}\n`;
+  }
   t += ` TOTALE:`.padEnd(24) + `€${(o.total || 0).toFixed(2)}\n`;
   t += SEP + '\n';
 
@@ -923,7 +963,12 @@ function orderToText(o) {
     if (cat.notes) t += '  [Nota: ' + cat.notes + ']\n';
     t += '\n';
   });
-  t += line36 + '\n' + '  TOTALE:'.padEnd(28) + '€' + (o.total || 0).toFixed(2) + '\n' + line36 + '\n';
+  
+  let strCoperto = '';
+  if (o.covers > 0 && o.copertoPrice > 0) {
+    strCoperto = '  Coperto (' + o.covers + 'x):'.padEnd(28) + '€' + (o.covers * o.copertoPrice).toFixed(2) + '\n';
+  }
+  t += line36 + '\n' + strCoperto + '  TOTALE:'.padEnd(28) + '€' + (o.total || 0).toFixed(2) + '\n' + line36 + '\n';
   return t;
 }
 
