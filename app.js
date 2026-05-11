@@ -138,11 +138,16 @@ function goTo(tab) {
   vibra();
   currentTab = tab;
   document.querySelectorAll('.sec, .nb').forEach(el => el.classList.remove('active'));
-  document.getElementById('sec-' + tab).classList.add('active');
-  document.getElementById('nb-' + tab).classList.add('active');
+  
+  // Assegnazione sicura con salvagente anti-crash
+  const secEl = document.getElementById('sec-' + tab);
+  const nbEl = document.getElementById('nb-' + tab);
+  
+  if (secEl) secEl.classList.add('active');
+  if (nbEl) nbEl.classList.add('active');
+  
   render();
 }
-
 function render() {
   renderPill();
   if (currentTab === 'menu')   renderMenu();
