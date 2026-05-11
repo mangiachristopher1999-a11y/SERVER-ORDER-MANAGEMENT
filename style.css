@@ -466,3 +466,14 @@ textarea { resize: none; height: 60px; }
   .modal-box { box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
   .nav { box-shadow: 0 -4px 15px rgba(0,0,0,0.3); }
 }
+
+/* ── FIX TASTIERA (Nasconde la nav e azzera gli spazi bianchi) ────────── */
+body.keyboard-open .nav {
+  display: none !important;
+}
+body.keyboard-open .stamp-footer {
+  bottom: 0 !important;
+}
+body.keyboard-open .pad {
+  padding-bottom: 24px !important;
+}

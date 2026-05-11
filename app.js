@@ -1311,6 +1311,27 @@ function checkReservationTimes() {
 setInterval(checkReservationTimes, 60000);
 
 // ══════════════════════════════════════════════════════════════════════════════
+// KEYBOARD FIX (Elimina la banda bianca su Android/iOS)
+// ══════════════════════════════════════════════════════════════════════════════
+if (window.visualViewport) {
+  let initialHeight = window.visualViewport.height;
+  
+  // Aggiorna l'altezza iniziale se si ruota lo schermo (anche se l'app è in portrait)
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { initialHeight = window.visualViewport.height; }, 200);
+  });
+
+  window.visualViewport.addEventListener('resize', () => {
+    // Se l'altezza si riduce drasticamente (> 100px), significa che la tastiera è aperta
+    if (window.visualViewport.height < initialHeight - 100) {
+      document.body.classList.add('keyboard-open');
+    } else {
+      document.body.classList.remove('keyboard-open');
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════════════════════════
 load().then(() => { render(); });
