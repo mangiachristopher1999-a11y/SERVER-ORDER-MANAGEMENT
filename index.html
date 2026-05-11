@@ -22,6 +22,7 @@
 <div class="scroll">
   <div class="pad">
     <div id="sec-menu"   class="sec active"></div>
+    <div id="sec-prenotazioni" class="sec"></div>
     <div id="sec-turno"  class="sec"></div>
     <div id="sec-orders" class="sec"></div>
     <div id="sec-stamp"  class="sec"></div>
@@ -31,6 +32,7 @@
 <!-- BOTTOM NAV -->
 <nav class="nav">
   <button class="nb active" id="nb-menu"   onclick="goTo('menu')"  ><span class="ico">📋</span>Menu</button>
+  <button class="nb"         id="nb-prenotazioni" onclick="goTo('prenotazioni')"><span class="ico">📅</span>Prenotati</button>
   <button class="nb"         id="nb-turno"  onclick="goTo('turno')" ><span class="ico">⏱</span>Turno</button>
   <button class="nb"         id="nb-orders" onclick="goTo('orders')"><span class="ico">📂</span>Comande</button>
   <button class="nb"         id="nb-stamp"  onclick="goTo('stamp')" ><span class="ico">✏️</span>Nuova</button>
@@ -45,7 +47,7 @@
     <div class="modal-title" id="addModalTitle">Aggiungi voce</div>
     <div class="field">
       <label>Nome pietanza / bevanda</label>
-      <input id="mi-name" type="text" placeholder="es. Tagliatelle al ragù">
+      <input id="mi-name" type="text" placeholder="Aggiungi Piatto/Bevanda">
     </div>
     <div class="row">
       <div class="field">
@@ -62,16 +64,16 @@
     <div class="row">
       <div class="field">
         <label>Ingredienti (rimovibili)</label>
-        <input id="mi-removals" type="text" placeholder="Es. Cipolla, Pomodoro">
+        <input id="mi-removals" type="text" placeholder="Inserisci ingredienti removibili">
       </div>
       <div class="field">
         <label>Aggiunte (extra)</label>
-        <input id="mi-additions" type="text" placeholder="Es. Ghiaccio, Panna">
+        <input id="mi-additions" type="text" placeholder="Inserisci aggiunte/extra +1.50">
       </div>
     </div>
     <div class="g12"></div>
     
-    <button class="btn btn-black btn-full" onclick="saveMenuItem()">+ Aggiungi</button>
+    <button class="btn btn-black btn-full" onclick="saveMenuItem()"></button>
     <div class="g8"></div>
     <button class="btn btn-muted btn-full" onclick="closeModal()">Annulla</button>
   </div>
@@ -84,7 +86,7 @@
     <div id="confirmMessage" style="margin-bottom:24px;font-size:13px;font-weight:500;line-height:1.5;white-space:pre-wrap;"></div>
     <div class="row">
       <button class="btn btn-muted" id="btnConfirmCancel" style="flex:1;">Annulla</button>
-      <button class="btn btn-black" id="btnConfirmOk"     style="flex:1;">OK</button>
+      <button class="btn btn-black" id="btnConfirmOk"     style="flex:1;">Conferma</button>
     </div>
   </div>
 </div>

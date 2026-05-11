@@ -13,12 +13,14 @@ let state = {
   menu: { antipasti: [], primi: [], secondi: [], dolci: [], bevande: [] },
   copertoPrice: 0,
   currentShift: null,
-  orders: []
+  orders: [],
+  reservations: []
 };
 
 let stampQty    = {};
 let stampNotes  = {};
 let stampItemNotes = {};
+let stampSplitMode = {};
 let isSavingOrder = false;
 
 let currentTab    = 'menu';
@@ -66,6 +68,7 @@ async function load() {
           if (parsed.menu)         state.menu = { ...state.menu, ...parsed.menu };
           if (parsed.currentShift) state.currentShift = parsed.currentShift;
           if (parsed.orders)       state.orders = parsed.orders;
+          if (parsed.reservations) state.reservations = parsed.reservations;
           if (parsed.copertoPrice !== undefined) state.copertoPrice = parsed.copertoPrice;
         }
         resolve();
@@ -146,6 +149,7 @@ function render() {
   if (currentTab === 'turno')  renderTurno();
   if (currentTab === 'orders') renderOrders();
   if (currentTab === 'stamp')  renderStamp();
+  if (currentTab === 'prenotazioni') renderPrenotazioni();
 }
 
 function renderPill() {
@@ -190,7 +194,7 @@ function renderMenu() {
       <div class="menu-cat-block">
         <div class="cat-label" style="font-size: 16px; font-weight: 800; border-bottom: 2px solid var(--border);">
           ${label}
-          <button class="btn btn-sm btn-outline" onclick="openAddModal('${key}')">+ Aggiungi</button>
+          <button class="btn btn-sm btn-outline" onclick="openAddModal('${key}')">Aggiungi</button>
         </div>`;
     
     if (items.length === 0) { 
@@ -223,7 +227,7 @@ function openAddModal(cat) {
  document.getElementById('mi-portions').value = '';
   document.getElementById('mi-removals').value = '';
   document.getElementById('mi-additions').value = '';
-  document.querySelector('#addModal .btn-black').textContent = '+ Aggiungi';
+  document.querySelector('#addModal .btn-black').textContent = 'Aggiungi';
 
   document.getElementById('addModal').classList.add('open');
   history.pushState({ modal: 'add' }, '');
@@ -571,9 +575,11 @@ function cancelEdit() {
   stampQty = {}; 
   stampNotes = {};
   stampItemNotes = {};
+  stampSplitMode = {};
   renderStamp();
   toast('Modifica annullata');
 }
+
 
 function exportAll() {
   if (state.orders.length === 0) return;
@@ -649,6 +655,18 @@ function renderStamp() {
   document.getElementById('sec-stamp').innerHTML = html;
 }
 
+function toggleSplitMode(cat, idx) {
+  vibra();
+  if (!stampSplitMode[cat]) stampSplitMode[cat] = {};
+  stampSplitMode[cat][idx] = !stampSplitMode[cat][idx]; // Inverte lo stato Acceso/Spento
+  
+  const varBlock = document.getElementById(`var-block-${cat}-${idx}`);
+  const qty = stampQty[cat]?.[idx] || 0;
+  if (varBlock && qty > 0) {
+    varBlock.innerHTML = buildVarHtml(cat, idx, qty); // Ridisegna solo questo blocco dinamicamente
+  }
+}
+
 function buildVarHtml(key, idx, qty) {
   const item = state.menu[key]?.[idx];
   if (!item) return '';
@@ -656,7 +674,22 @@ function buildVarHtml(key, idx, qty) {
   const addList = item.additions ? item.additions.split(',').map(v => v.trim()).filter(v => v) : [];
   
   let html = '';
-  for (let i = 0; i < qty; i++) {
+  const isBevanda = (key === 'bevande');
+  const isSplit = stampSplitMode[key]?.[idx] || false;
+  
+  // Mostra il bottone per dividere le variazioni (solo se qty > 1 e non è una bevanda)
+  if (!isBevanda && qty > 1) {
+    html += `
+      <button class="btn btn-sm btn-outline" style="width:100%; margin-bottom:10px; font-size:11px; padding:6px; color:var(--muted);" onclick="toggleSplitMode('${key}', ${idx})">
+        ${isSplit ? '🔄 Raggruppa in un\'unica nota' : '✂️ Dividi per variazioni singole'}
+      </button>
+    `;
+  }
+
+  // Limita il ciclo a 1 se è bevanda o se NON abbiamo cliccato il bottone "Dividi"
+  const loopLimit = (isBevanda || !isSplit) ? 1 : qty;
+
+  for (let i = 0; i < loopLimit; i++) {
     let itemNote = (stampItemNotes[key] && stampItemNotes[key][idx]) ? (stampItemNotes[key][idx][i] || '') : '';
     let varBtns = '';
     
@@ -666,19 +699,35 @@ function buildVarHtml(key, idx, qty) {
         varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--danger); color:var(--danger); padding:4px 8px; font-size:10px;" onpointerdown="event.preventDefault()" onclick="addVarToItem('${key}',${idx},${i},'Senza ${esc(v)}')">− ${esc(v)}</button>`;
       });
       addList.forEach(v => {
-        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); padding:4px 8px; font-size:10px;" onpointerdown="event.preventDefault()" onclick="addVarToItem('${key}',${idx},${i},'+ ${esc(v)}')">+ ${esc(v)}</button>`;
+        // Estraiamo il nome dell'ingrediente e l'eventuale prezzo (es. "Panna + 1.50")
+        const match = v.match(/^(.*?)(?:\s*\+\s*([\d.,]+))?$/);
+        const name = match ? match[1].trim() : v.trim();
+        const priceStr = match ? match[2] : null;
+        
+        let btnLabel = `+ ${esc(name)}`;
+        let noteText = `+ ${name}`; // Testo pulito per la nota
+        
+        if (priceStr) {
+          const p = parseFloat(priceStr.replace(',', '.')).toFixed(2);
+          btnLabel += ` (+€${p})`;
+          noteText += ` (+€${p})`;
+        }
+        
+        const safeNote = noteText.replace(/'/g, "\\'");
+        varBtns += `<button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); padding:4px 8px; font-size:10px;" onpointerdown="event.preventDefault()" onclick="addVarToItem('${key}',${idx},${i},'${safeNote}')">${btnLabel}</button>`;
       });
       varBtns += `</div>`;
     }
     
-    const label = qty > 1 ? `<div style="font-size:11px; font-weight:600; color:var(--accent); margin-bottom:6px;">Piatto ${i+1}</div>` : '';
-    const style = qty > 1 ? 'border-left:2px solid var(--accent); padding-left:10px; margin-top:10px;' : 'margin-top:6px;';
+    
+    const label = (!isBevanda && isSplit && qty > 1) ? `<div style="font-size:11px; font-weight:600; color:var(--accent); margin-bottom:6px;">Piatto ${i+1}</div>` : '';
+    const style = (!isBevanda && isSplit && qty > 1) ? 'border-left:2px solid var(--accent); padding-left:10px; margin-top:10px;' : 'margin-top:6px;';
     
     html += `
       <div class="var-instance" style="${style}">
         ${label}
         ${varBtns}
-        <input type="text" id="inote-${key}-${idx}-${i}" placeholder="${qty>1 ? 'Note piatto '+(i+1)+'...' : 'Note per '+esc(item.name)+'...'}" value="${esc(itemNote)}" oninput="setItemNote('${key}',${idx},${i},this.value)" style="font-size:11px; padding:6px 8px;">
+        <input type="text" id="inote-${key}-${idx}-${i}" placeholder="${(!isBevanda && isSplit && qty>1) ? 'Note piatto '+(i+1)+'...' : 'Note per '+esc(item.name)+'...'}" value="${esc(itemNote)}" oninput="setItemNote('${key}',${idx},${i},this.value); updateStampTotal()" style="font-size:11px; padding:6px 8px;">
       </div>`;
   }
   return html;
@@ -731,6 +780,7 @@ function addVarToItem(cat, idx, inst, varText) {
     inputEl.value = current;
     inputEl.focus(); // Forza il mantenimento del focus sulla tastiera
   }
+  updateStampTotal(); // Aggiorna istantaneamente il totale della comanda
 }
 
 function updateStampTotal() {
@@ -738,10 +788,21 @@ function updateStampTotal() {
   if (totalEl) totalEl.textContent = '€' + calcTotal().toFixed(2);
 }
 
+function getExtraPrice(note) {
+  let tot = 0;
+  // Cerca pattern tipo "(+€1.50)" all'interno della stringa della nota
+  const matches = note.match(/\(\+€([\d.]+)\)/g);
+  if (matches) {
+    matches.forEach(m => {
+      tot += parseFloat(m.replace('(+€', '').replace(')', ''));
+    });
+  }
+  return tot;
+}
+
 function calcTotal() {
   let t = 0;
   
-  // Calcolo del coperto
   const coversInput = document.getElementById('s-covers');
   const covers = coversInput ? (parseInt(coversInput.value) || 0) : 0;
   t += covers * (state.copertoPrice || 0);
@@ -750,7 +811,20 @@ function calcTotal() {
     if (!stampQty[key]) continue;
     for (const [idx, qty] of Object.entries(stampQty[key])) {
       const item = state.menu[key]?.[parseInt(idx)];
-      if (item && qty > 0) t += (item.price || 0) * qty;
+      if (item && qty > 0) {
+        const isSplit = stampSplitMode[key]?.[idx] || false;
+        if (key === 'bevande' || !isSplit) {
+          // Aggiunge al prezzo del piatto il valore degli extra trovati nella nota globale
+          const note = (stampItemNotes[key]?.[idx]?.[0] || '');
+          t += ((item.price || 0) + getExtraPrice(note)) * qty;
+        } else {
+          // Somma i prezzi dei singoli piatti splittati con le loro specifiche note
+          for(let i=0; i<qty; i++) {
+            const note = (stampItemNotes[key]?.[idx]?.[i] || '');
+            t += (item.price || 0) + getExtraPrice(note);
+          }
+        }
+      }
     }
   }
   return t;
@@ -774,14 +848,22 @@ function saveStamp() {
     for (const [idx, qty] of Object.entries(stampQty[key] || {})) {
       const item = state.menu[key]?.[parseInt(idx)];
       if (item && qty > 0) {
-        const notesCount = {};
-        // Raggruppiamo i piatti che hanno le stesse identiche note
-        for(let i=0; i<qty; i++) {
-           const n = (stampItemNotes[key]?.[idx]?.[i] || '').trim();
-           notesCount[n] = (notesCount[n] || 0) + 1;
-        }
-        for (const [n, count] of Object.entries(notesCount)) {
-           items.push({ name: item.name, qty: count, price: item.price || 0, note: n });
+        const isSplit = stampSplitMode[key]?.[idx] || false;
+        
+        if (key === 'bevande' || !isSplit) {
+          const n = (stampItemNotes[key]?.[idx]?.[0] || '').trim();
+          // Iniettiamo chirurgicamente il rincaro nel prezzo salvato!
+          items.push({ name: item.name, qty: qty, price: (item.price || 0) + getExtraPrice(n), note: n });
+        } else {
+          const notesCount = {};
+          for(let i=0; i<qty; i++) {
+             const n = (stampItemNotes[key]?.[idx]?.[i] || '').trim();
+             notesCount[n] = (notesCount[n] || 0) + 1;
+          }
+          for (const [n, count] of Object.entries(notesCount)) {
+             // Anche qui, il rincaro viaggia con il gruppo raggruppato
+             items.push({ name: item.name, qty: count, price: (item.price || 0) + getExtraPrice(n), note: n });
+          }
         }
       }
     }
@@ -1049,6 +1131,120 @@ function appConfirm(message, isDanger = false) {
   });
 }
 
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PRENOTAZIONI LOGIC
+// ══════════════════════════════════════════════════════════════════════════════
+function renderPrenotazioni() {
+  let html = `
+    <div class="shift-block" style="background: var(--subtle)">
+      <div class="shift-block-title">Nuova Prenotazione</div>
+      <div class="field">
+        <label>Nome Prenotazione</label>
+        <input type="text" id="pren-name" placeholder="Es. Mario Rossi">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Orario</label>
+          <input type="time" id="pren-time">
+        </div>
+        <div class="field">
+          <label>N° Tavolo</label>
+          <input type="number" inputmode="numeric" id="pren-table" placeholder="Es. 4">
+        </div>
+        <div class="field">
+          <label>Coperti</label>
+          <input type="number" inputmode="numeric" id="pren-covers" placeholder="Es. 2">
+        </div>
+      </div>
+      <div class="g8"></div>
+      <button class="btn btn-black btn-sm btn-full" onclick="addReservation()">+ Aggiungi Prenotazione</button>
+    </div>
+    
+    <div class="divider">Prenotazioni in attesa</div>`;
+
+  const res = state.reservations || [];
+  if (res.length === 0) {
+    html += `<div class="empty">Nessuna prenotazione inserita.</div>`;
+  } else {
+    res.forEach(r => {
+      html += `
+        <div class="oc">
+          <div class="oc-head">
+            <div class="oc-table">${esc(r.name)}</div>
+            <div class="oc-time">${r.time ? '⏰ ' + r.time + ' · ' : ''}Tavolo ${r.table || '?'}</div>
+          </div>
+          <div class="oc-sub"><span>${r.covers || 0} coperti</span></div>
+          <div class="oc-actions" style="margin-top: 14px; display: flex; gap: 8px;">
+            <button class="btn btn-sm btn-outline" style="border-color:var(--ok); color:var(--ok); flex: 2;" onclick="seatReservation('${r.id}')">▶ Siedi (Nuova Comanda)</button>
+            <button class="btn btn-sm btn-danger" style="flex: 1;" onclick="deleteReservation('${r.id}')">Elimina</button>
+          </div>
+        </div>`;
+    });
+  }
+  document.getElementById('sec-prenotazioni').innerHTML = html;
+}
+
+function addReservation() {
+  vibra();
+  const name = document.getElementById('pren-name').value.trim();
+  const table = document.getElementById('pren-table').value.trim();
+  const covers = parseInt(document.getElementById('pren-covers').value) || 0;
+  const time = document.getElementById('pren-time').value;
+
+  if (!name) { toast('⚠ Inserisci almeno un nome'); return; }
+
+  // Richiedi i permessi per le notifiche native di sistema
+  if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+    Notification.requestPermission();
+  }
+
+  if (!state.reservations) state.reservations = [];
+  // Inseriamo anche il flag "notified" per evitare invii doppi
+  state.reservations.push({ id: uid(), name, table, covers, time, notified: false });
+  
+  save().then(() => {
+    renderPrenotazioni();
+    toast('Prenotazione aggiunta');
+  });
+}
+
+async function deleteReservation(id) {
+  if (!(await appConfirm('Eliminare la prenotazione?', true))) return;
+  state.reservations = state.reservations.filter(r => r.id !== id);
+  save(); 
+  renderPrenotazioni(); 
+  toast('Prenotazione eliminata');
+}
+
+async function seatReservation(id) {
+  vibra();
+  const r = state.reservations.find(x => x.id === id);
+  if (!r) return;
+
+  // 1. Resetta lo stato del tab "Nuova" per assicurare una comanda pulita
+  editingOrderId = null; 
+  stampQty = {}; stampNotes = {}; stampItemNotes = {};
+
+  // 2. Naviga fisicamente al tab (questo triggera renderStamp())
+  goTo('stamp');
+
+  // 3. DOPO il render, manipoliamo il DOM per iniettare i dati prelevati
+  document.getElementById('s-table').value = r.table || '';
+  document.getElementById('s-covers').value = r.covers || '';
+  document.getElementById('s-name').value = r.name || '';
+  updateStampTotal(); // Ricalcola il coperto in base al totale iniettato
+
+  // 4. Cleanup opzionale: rimuovi la prenotazione che è stata evasa
+  if (await appConfirm(`Coperti assegnati! Vuoi rimuovere "${r.name}" dalla lista dei prenotati?`)) {
+    state.reservations = state.reservations.filter(x => x.id !== id);
+    save();
+  } else {
+    toast('Comanda precompilata con successo');
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // UTILS
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1068,6 +1264,46 @@ function toast(msg) {
 }
 
 document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NOTIFICATION ENGINE
+// ══════════════════════════════════════════════════════════════════════════════
+function checkReservationTimes() {
+  if (!state.reservations || state.reservations.length === 0) return;
+  
+  const now = new Date();
+  const currentHHMM = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+  let needsSave = false;
+
+  state.reservations.forEach(r => {
+    // Se la prenotazione ha un orario, non è stata notificata e l'orario è arrivato
+    if (r.time && !r.notified && currentHHMM >= r.time) {
+      vibra();
+      toast(`⏰ Il tavolo di ${r.name} è atteso per ora!`);
+      
+      // Tenta la notifica nativa di sistema
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Cameriere Pro", {
+          body: `⏰ Prenotazione attesa: ${r.name} (Tavolo ${r.table || '?'}) per le ${r.time}!`,
+          icon: "icon-192.png"
+        });
+      }
+      
+      r.notified = true; // Marca come notificata
+      needsSave = true;
+    }
+  });
+
+  if (needsSave) {
+    save();
+    // Aggiorna l'interfaccia silenziamente se l'utente è sulla scheda prenotazioni
+    if (currentTab === 'prenotazioni') renderPrenotazioni();
+  }
+}
+
+// Avvia il timer: controlla le prenotazioni ogni 60 secondi
+setInterval(checkReservationTimes, 60000);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // INIT
